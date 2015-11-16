@@ -1,155 +1,243 @@
 #include "PredictiveHierarchy.h"
 
+#include <algorithm>
+
 using namespace neo;
 
-void PredictiveHierarchy::createRandom(sys::ComputeSystem &cs, sys::ComputeProgram &program,
-	cl_int2 inputSize, cl_int firstLayerPredictorRadius, const std::vector<LayerDesc> &layerDescs, 
-	cl_float2 initWeightRange, cl_float2 initLateralWeightRange, cl_float initThreshold,
-	cl_float2 initCodeRange, cl_float2 initReconstructionErrorRange, 
-	std::mt19937 &rng)
-{
+void PredictiveHierarchy::createRandom(int inputWidth, int inputHeight, int inputFeedBackRadius, const std::vector<LayerDesc> &layerDescs, float initMinWeight, float initMaxWeight, float initMinInhibition, float initMaxInhibition, float initThreshold, std::mt19937 &generator) {
+	std::uniform_real_distribution<float> weightDist(initMinWeight, initMaxWeight);
+
 	_layerDescs = layerDescs;
+
 	_layers.resize(_layerDescs.size());
 
-	cl_int2 prevLayerSize = inputSize;
+	int widthPrev = inputWidth;
+	int heightPrev = inputHeight;
 
-	for (int l = 0; l < _layers.size(); l++) {
-		std::vector<SparseCoder::VisibleLayerDesc> scDescs(2);
+	for (int l = 0; l < _layerDescs.size(); l++) {
+		_layers[l]._sdr.createRandom(widthPrev, heightPrev, _layerDescs[l]._width, _layerDescs[l]._height, _layerDescs[l]._receptiveRadius, _layerDescs[l]._recurrentRadius, _layerDescs[l]._lateralRadius, initMinWeight, initMaxWeight, initMinInhibition, initMaxInhibition, initThreshold, generator);
 
-		scDescs[0]._size = prevLayerSize;
-		scDescs[0]._radius = _layerDescs[l]._feedForwardRadius;
+		_layers[l]._predictionNodes.resize(_layerDescs[l]._width * _layerDescs[l]._height);
 
-		scDescs[1]._size = _layerDescs[l]._size;
-		scDescs[1]._radius = _layerDescs[l]._recurrentRadius;
+		int feedBackSize = std::pow(_layerDescs[l]._feedBackRadius * 2 + 1, 2);
+		int predictiveSize = std::pow(_layerDescs[l]._predictiveRadius * 2 + 1, 2);
 
-		_layers[l]._sc.createRandom(cs, program, scDescs, _layerDescs[l]._size, _layerDescs[l]._lateralRadius, initWeightRange, initLateralWeightRange, initThreshold, initCodeRange, initReconstructionErrorRange, true, rng);
-	
-		std::vector<Predictor::VisibleLayerDesc> predDescs;
+		float hiddenToNextHiddenWidth = 1.0f;
+		float hiddenToNextHiddenHeight = 1.0f;
 
 		if (l < _layers.size() - 1) {
-			predDescs.resize(2);
-
-			predDescs[0]._size = _layerDescs[l + 1]._size;
-			predDescs[0]._radius = _layerDescs[l]._feedBackRadius;
-
-			predDescs[1]._size = _layerDescs[l]._size;
-			predDescs[1]._radius = _layerDescs[l]._predictiveRadius;
-		}
-		else {
-			predDescs.resize(1);
-
-			predDescs[0]._size = _layerDescs[l]._size;
-			predDescs[0]._radius = _layerDescs[l]._predictiveRadius;
+			hiddenToNextHiddenWidth = static_cast<float>(_layerDescs[l + 1]._width) / static_cast<float>(_layerDescs[l]._width);
+			hiddenToNextHiddenHeight = static_cast<float>(_layerDescs[l + 1]._height) / static_cast<float>(_layerDescs[l]._height);
 		}
 
-		_layers[l]._pred.createRandom(cs, program, predDescs, _layerDescs[l]._size, initWeightRange, rng);
+		for (int pi = 0; pi < _layers[l]._predictionNodes.size(); pi++) {
+			PredictionNode &p = _layers[l]._predictionNodes[pi];
 
-		// Create baselines
-		_layers[l]._baseLines = createDoubleBuffer2D(cs, _layerDescs[l]._size, CL_R, CL_FLOAT);
+			p._bias._weight = weightDist(generator);
 
-		_layers[l]._reward = cl::Image2D(cs.getContext(), CL_MEM_READ_WRITE, cl::ImageFormat(CL_R, CL_FLOAT), _layerDescs[l]._size.x, _layerDescs[l]._size.y);
-		_layers[l]._scHiddenStatesPrev = cl::Image2D(cs.getContext(), CL_MEM_READ_WRITE, cl::ImageFormat(CL_R, CL_FLOAT), _layerDescs[l]._size.x, _layerDescs[l]._size.y);
+			int hx = pi % _layerDescs[l]._width;
+			int hy = pi / _layerDescs[l]._width;
 
-		cl_float4 zeroColor = { 0.0f, 0.0f, 0.0f, 0.0f };
+			// Feed Back
+			if (l < _layers.size() - 1) {
+				p._feedBackConnections.reserve(feedBackSize);
 
-		cl::array<cl::size_type, 3> zeroOrigin = { 0, 0, 0 };
-		cl::array<cl::size_type, 3> layerRegion = { _layerDescs[l]._size.x, _layerDescs[l]._size.y, 1 };
+				int centerX = std::round(hx * hiddenToNextHiddenWidth);
+				int centerY = std::round(hy * hiddenToNextHiddenHeight);
 
-		cs.getQueue().enqueueFillImage(_layers[l]._baseLines[_back], zeroColor, zeroOrigin, layerRegion);
-		cs.getQueue().enqueueFillImage(_layers[l]._scHiddenStatesPrev, zeroColor, zeroOrigin, layerRegion);
+				for (int dx = -_layerDescs[l]._feedBackRadius; dx <= _layerDescs[l]._feedBackRadius; dx++)
+					for (int dy = -_layerDescs[l]._feedBackRadius; dy <= _layerDescs[l]._feedBackRadius; dy++) {
+						int hox = centerX + dx;
+						int hoy = centerY + dy;
+
+						if (hox >= 0 && hox < _layerDescs[l + 1]._width && hoy >= 0 && hoy < _layerDescs[l + 1]._height) {
+							int hio = hox + hoy * _layerDescs[l + 1]._width;
+
+							Connection c;
+
+							c._weight = weightDist(generator);
+							c._index = hio;
+
+							p._feedBackConnections.push_back(c);
+						}
+					}
+
+				p._feedBackConnections.shrink_to_fit();
+			}
+
+			// Predictive
+			p._predictiveConnections.reserve(feedBackSize);
+
+			for (int dx = -_layerDescs[l]._predictiveRadius; dx <= _layerDescs[l]._predictiveRadius; dx++)
+				for (int dy = -_layerDescs[l]._predictiveRadius; dy <= _layerDescs[l]._predictiveRadius; dy++) {
+					int hox = hx + dx;
+					int hoy = hy + dy;
+
+					if (hox >= 0 && hox < _layerDescs[l]._width && hoy >= 0 && hoy < _layerDescs[l]._height) {
+						int hio = hox + hoy * _layerDescs[l]._width;
+
+						Connection c;
+
+						c._weight = weightDist(generator);
+						c._index = hio;
+
+						p._predictiveConnections.push_back(c);
+					}
+				}
+
+			p._predictiveConnections.shrink_to_fit();
+		}
+
+		widthPrev = _layerDescs[l]._width;
+		heightPrev = _layerDescs[l]._height;
 	}
 
-	std::vector<Predictor::VisibleLayerDesc> predDescs(1);
+	_inputPredictionNodes.resize(inputWidth * inputHeight);
 
-	predDescs[0]._size = _layerDescs.front()._size;
-	predDescs[0]._radius = firstLayerPredictorRadius;
+	float inputToNextHiddenWidth = static_cast<float>(_layerDescs.front()._width) / static_cast<float>(inputWidth);
+	float inputToNextHiddenHeight = static_cast<float>(_layerDescs.front()._height) / static_cast<float>(inputHeight);
 
-	_firstLayerPred.createRandom(cs, program, predDescs, inputSize, initWeightRange, rng);
+	for (int pi = 0; pi < _inputPredictionNodes.size(); pi++) {
+		InputPredictionNode &p = _inputPredictionNodes[pi];
 
-	_baseLineUpdateKernel = cl::Kernel(program.getProgram(), "phBaseLineUpdate");
+		p._bias._weight = weightDist(generator);
+
+		int hx = pi % inputWidth;
+		int hy = pi / inputWidth;
+
+		int feedBackSize = std::pow(inputFeedBackRadius * 2 + 1, 2);
+
+		// Feed Back
+		p._feedBackConnections.reserve(feedBackSize);
+
+		int centerX = std::round(hx * inputToNextHiddenWidth);
+		int centerY = std::round(hy * inputToNextHiddenHeight);
+
+		for (int dx = -inputFeedBackRadius; dx <= inputFeedBackRadius; dx++)
+			for (int dy = -inputFeedBackRadius; dy <= inputFeedBackRadius; dy++) {
+				int hox = centerX + dx;
+				int hoy = centerY + dy;
+
+				if (hox >= 0 && hox < _layerDescs.front()._width && hoy >= 0 && hoy < _layerDescs.front()._height) {
+					int hio = hox + hoy * _layerDescs.front()._width;
+
+					Connection c;
+
+					c._weight = weightDist(generator);
+					c._index = hio;
+
+					p._feedBackConnections.push_back(c);
+				}
+			}
+
+		p._feedBackConnections.shrink_to_fit();
+	}
 }
 
-void PredictiveHierarchy::simStep(sys::ComputeSystem &cs, const cl::Image2D &input, bool learn) {
-	// Feed forward
-	cl::Image2D prevLayerState = input;
-
+void PredictiveHierarchy::simStep(std::mt19937 &generator, bool learn) {
+	// Feature extraction
 	for (int l = 0; l < _layers.size(); l++) {
-		{
-			std::vector<cl::Image2D> visibleStates(2);
+		_layers[l]._sdr.activate(_layerDescs[l]._sdrIterSettle, _layerDescs[l]._sdrIterMeasure, _layerDescs[l]._sdrLeak, _layerDescs[l]._sdrNoise, generator);
 
-			visibleStates[0] = prevLayerState;
-			visibleStates[1] = _layers[l]._sc.getHiddenStates()[_back];
-
-			_layers[l]._sc.activate(cs, visibleStates, _layerDescs[l]._scSettleIterations, _layerDescs[l]._scMeasureIterations, _layerDescs[l]._scLeak);
+		// Set inputs for next layer if there is one
+		if (l < _layers.size() - 1) {
+			for (int i = 0; i < _layers[l]._sdr.getNumHidden(); i++)
+				_layers[l + 1]._sdr.setVisibleState(i, _layers[l]._sdr.getHiddenState(i));
 		}
-
-		// Get reward
-		{
-			int argIndex = 0;
-
-			_baseLineUpdateKernel.setArg(argIndex++, _layers[l]._sc.getHiddenStates()[_back]);
-			_baseLineUpdateKernel.setArg(argIndex++, _layers[l]._pred.getHiddenStates()[_back]);
-			_baseLineUpdateKernel.setArg(argIndex++, _layers[l]._baseLines[_back]);
-			_baseLineUpdateKernel.setArg(argIndex++, _layers[l]._baseLines[_front]);
-			_baseLineUpdateKernel.setArg(argIndex++, _layers[l]._reward);
-			_baseLineUpdateKernel.setArg(argIndex++, _layerDescs[l]._baseLineDecay);
-			_baseLineUpdateKernel.setArg(argIndex++, _layerDescs[l]._baseLineSensitivity);
-
-			cs.getQueue().enqueueNDRangeKernel(_baseLineUpdateKernel, cl::NullRange, cl::NDRange(_layerDescs[l]._size.x, _layerDescs[l]._size.y));
-		}
-
-		prevLayerState = _layers[l]._sc.getHiddenStates()[_back];
 	}
+
+	// Prediction
+	std::vector<std::vector<float>> rewards(_layers.size());
 
 	for (int l = _layers.size() - 1; l >= 0; l--) {
-		std::vector<cl::Image2D> visibleStates;
-		std::vector<cl::Image2D> visibleStatesPrev;
+		rewards[l].resize(_layers[l]._predictionNodes.size());
 
-		if (l < _layers.size() - 1) {
-			visibleStates.resize(2);
+		for (int pi = 0; pi < _layers[l]._predictionNodes.size(); pi++) {
+			PredictionNode &p = _layers[l]._predictionNodes[pi];
 
-			visibleStates[0] = _layers[l + 1]._pred.getHiddenStates()[_back];
-			visibleStates[1] = _layers[l]._sc.getHiddenStates()[_back];
+			// Learn
+			if (learn) {
+				float predictionError = _layers[l]._sdr.getHiddenState(pi) - p._statePrev;
 
-			visibleStatesPrev.resize(2);
+				float error2 = predictionError * predictionError;
 
-			visibleStatesPrev[0] = _layers[l + 1]._pred.getHiddenStates()[_front];
-			visibleStatesPrev[1] = _layers[l]._scHiddenStatesPrev;
+				rewards[l][pi] = sigmoid(_layerDescs[l]._sdrSensitivity * (p._baseline - error2));
+
+				p._baseline = (1.0f - _layerDescs[l]._sdrBaselineDecay) * p._baseline + _layerDescs[l]._sdrBaselineDecay * error2;
+
+				if (predictionError != 0.0f) {
+					if (l < _layers.size() - 1) {
+						for (int ci = 0; ci < p._feedBackConnections.size(); ci++)
+							p._feedBackConnections[ci]._weight += _layerDescs[l]._learnFeedBack * predictionError * _layers[l + 1]._predictionNodes[p._feedBackConnections[ci]._index]._statePrev;
+					}
+
+					// Predictive
+					for (int ci = 0; ci < p._predictiveConnections.size(); ci++)
+						p._predictiveConnections[ci]._weight += _layerDescs[l]._learnPrediction * predictionError * _layers[l]._sdr.getHiddenStatePrev(p._predictiveConnections[ci]._index);
+				}
+			}
+
+			float activation = 0.0f;
+
+			// Feed Back
+			if (l < _layers.size() - 1) {
+				for (int ci = 0; ci < p._feedBackConnections.size(); ci++)
+					activation += p._feedBackConnections[ci]._weight * _layers[l + 1]._predictionNodes[p._feedBackConnections[ci]._index]._state;
+			}
+			
+			// Predictive
+			for (int ci = 0; ci < p._predictiveConnections.size(); ci++)
+				activation += p._predictiveConnections[ci]._weight * _layers[l]._sdr.getHiddenState(p._predictiveConnections[ci]._index);
+
+			p._activation = activation;
+
+			p._state = std::min(1.0f, std::max(0.0f, p._activation));
 		}
-		else {
-			visibleStates.resize(1);
-
-			visibleStates[0] = _layers[l]._sc.getHiddenStates()[_back];
-
-			visibleStatesPrev.resize(1);
-
-			visibleStatesPrev[0] = _layers[l]._scHiddenStatesPrev;
-		}
-
-		_layers[l]._pred.activate(cs, visibleStates, true);
-
-		_layers[l]._pred.learn(cs, _layers[l]._sc.getHiddenStates()[_back], visibleStatesPrev, _layerDescs[l]._predWeightAlpha);
-
-		_layers[l]._sc.learnTrace(cs, _layers[l]._reward, _layerDescs[l]._scWeightAlpha, _layerDescs[l]._scLateralWeightAlpha, _layerDescs[l]._scWeightTraceLambda, _layerDescs[l]._scThresholdAlpha, _layerDescs[l]._scActiveRatio);
 	}
 
-	{
-		std::vector<cl::Image2D> visibleStates(1);
-		std::vector<cl::Image2D> visibleStatesPrev(1);
+	// Get first layer prediction
+	for (int pi = 0; pi < _inputPredictionNodes.size(); pi++) {
+		InputPredictionNode &p = _inputPredictionNodes[pi];
 
-		visibleStates[0] = _layers.front()._pred.getHiddenStates()[_back];
-		visibleStatesPrev[0] = _layers.front()._pred.getHiddenStates()[_front];
+		// Learn
+		if (learn) {
+			float predictionError = _layers.front()._sdr.getVisibleState(pi) - p._statePrev;
 
-		_firstLayerPred.activate(cs, visibleStates, false);
+			if (predictionError != 0.0f) {
+				for (int ci = 0; ci < p._feedBackConnections.size(); ci++)
+					p._feedBackConnections[ci]._weight += _learnInputFeedBack * predictionError * _layers.front()._predictionNodes[p._feedBackConnections[ci]._index]._statePrev;
+			}
+		}
 
-		_firstLayerPred.learn(cs, input, visibleStatesPrev, _predWeightAlpha);
+		float activation = 0.0f;
+
+		// Feed Back
+		for (int ci = 0; ci < p._feedBackConnections.size(); ci++)
+			activation += p._feedBackConnections[ci]._weight * _layers.front()._predictionNodes[p._feedBackConnections[ci]._index]._state;
+
+		p._activation = activation;
+
+		p._state = p._activation;
 	}
 
-	// Buffer updates
 	for (int l = 0; l < _layers.size(); l++) {
-		cl::array<cl::size_type, 3> zeroOrigin = { 0, 0, 0 };
-		cl::array<cl::size_type, 3> layerRegion = { _layerDescs[l]._size.x, _layerDescs[l]._size.y, 1 };
+		if (learn)
+			_layers[l]._sdr.learn(rewards[l], _layerDescs[l]._sdrLambda, _layerDescs[l]._learnFeedForward, _layerDescs[l]._learnRecurrent, _layerDescs[l]._learnLateral, _layerDescs[l]._sdrLearnThreshold, _layerDescs[l]._sdrSparsity, _layerDescs[l]._sdrWeightDecay, _layerDescs[l]._sdrMaxWeightDelta); //attentions[l], 
 
-		cs.getQueue().enqueueCopyImage(_layers[l]._sc.getHiddenStates()[_back], _layers[l]._scHiddenStatesPrev, zeroOrigin, zeroOrigin, layerRegion);
+		_layers[l]._sdr.stepEnd();
+
+		for (int pi = 0; pi < _layers[l]._predictionNodes.size(); pi++) {
+			PredictionNode &p = _layers[l]._predictionNodes[pi];
+
+			p._statePrev = p._state;
+			p._activationPrev = p._activation;
+		}
+	}
+
+	for (int pi = 0; pi < _inputPredictionNodes.size(); pi++) {
+		InputPredictionNode &p = _inputPredictionNodes[pi];
+
+		p._statePrev = p._state;
+		p._activationPrev = p._activation;
 	}
 }

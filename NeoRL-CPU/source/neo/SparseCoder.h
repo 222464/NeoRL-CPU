@@ -1,98 +1,163 @@
 #pragma once
 
-#include "Helpers.h"
+#include <vector>
+#include <random>
 
-/*
-SparseCoder
-	
-Creates 2D sparse codes for a set of input layers.
-*/
 namespace neo {
 	class SparseCoder {
 	public:
-		struct VisibleLayerDesc {
-			cl_int2 _size;
+		struct Connection {
+			unsigned short _index;
 
-			cl_int _radius;
+			float _weight;
 
-			VisibleLayerDesc()
-				: _size({ 8, 8 }), _radius(4)
+			float _trace;
+
+			Connection()
+				: _trace(0.0f)
 			{}
 		};
 
-		struct VisibleLayer {
-			cl::Image2D _reconstructionError;
+		struct HiddenNode {
+			std::vector<Connection> _feedForwardConnections;
+			std::vector<Connection> _recurrentConnections;
+			std::vector<Connection> _lateralConnections;
 
-			DoubleBuffer3D _weights;
+			float _activation;
+			float _spike;
+			float _spikePrev;
+			float _state;
+			float _statePrev;
+			float _input;
 
-			cl_float2 _hiddenToVisible;
-			cl_float2 _visibleToHidden;
+			float _reconstruction;
 
-			cl_int2 _reverseRadii;
+			float _threshold;
+
+			HiddenNode()
+				: _activation(0.0f), _spike(0.0f), _spikePrev(0.0f), _state(0.0f), _statePrev(0.0f), _reconstruction(0.0f), _input(0.0f), _threshold(1.0f)
+			{}
+		};
+
+		struct VisibleNode {
+			float _input;
+			float _reconstruction;
+
+			VisibleNode()
+				: _input(0.0f), _reconstruction(0.0f)
+			{}
 		};
 
 	private:
-		DoubleBuffer2D _hiddenSpikes;
-		DoubleBuffer2D _hiddenStates;
-		DoubleBuffer2D _hiddenActivations;
-		DoubleBuffer2D _hiddenThresholds;
+		int _visibleWidth, _visibleHeight;
+		int _hiddenWidth, _hiddenHeight;
+		int _receptiveRadius;
+		int _recurrentRadius;
 
-		DoubleBuffer3D _lateralWeights;
-
-		cl_int _lateralRadius;
-
-		cl_int2 _hiddenSize;
-
-		DoubleBuffer2D _hiddenSummationTemp;
-
-		std::vector<VisibleLayerDesc> _visibleLayerDescs;
-		std::vector<VisibleLayer> _visibleLayers;
-
-		cl::Kernel _reconstructVisibleErrorKernel;
-		cl::Kernel _activateFromReconstructionErrorKernel;
-		cl::Kernel _solveHiddenKernel;
-		cl::Kernel _learnThresholdsKernel;
-		cl::Kernel _learnWeightsKernel;
-		cl::Kernel _learnWeightsTracesKernel;
-		cl::Kernel _learnWeightsLateralKernel;
-
-		void reconstructError(sys::ComputeSystem &cs, const std::vector<cl::Image2D> &visibleStates);
+		std::vector<VisibleNode> _visible;
+		std::vector<HiddenNode> _hidden;
 
 	public:
-		// Create with randomly initialized weights
-		void createRandom(sys::ComputeSystem &cs, sys::ComputeProgram &program,
-			const std::vector<VisibleLayerDesc> &visibleLayerDescs, cl_int2 hiddenSize, cl_int lateralRadius, cl_float2 initWeightRange, cl_float2 initLateralWeightRange, cl_float initThreshold,
-			cl_float2 initCodeRange, cl_float2 initReconstructionErrorRange,
-			bool enableTraces,
-			std::mt19937 &rng);
-
-		void activate(sys::ComputeSystem &cs, const std::vector<cl::Image2D> &visibleStates, cl_int settleIterations, cl_int measureIterations, cl_float leak);
-
-		void learn(sys::ComputeSystem &cs, float weightAlpha, float weightLateralAlpha, float thresholdAlpha, float activeRatio);
-		void learnTrace(sys::ComputeSystem &cs, const cl::Image2D &rewards, float weightAlpha, float weightLateralAlpha, float weightTraceLambda, float thresholdAlpha, float activeRatio);
-
-		size_t getNumVisibleLayers() const {
-			return _visibleLayers.size();
+		static float sigmoid(float x) {
+			return 1.0f / (1.0f + std::exp(-x));
 		}
 
-		const VisibleLayer &getVisibleLayer(int index) const {
-			return _visibleLayers[index];
+		void createRandom(int visibleWidth, int visibleHeight, int hiddenWidth, int hiddenHeight, int receptiveRadius, int recurrentRadius, int lateralRadius, float initMinWeight, float initMaxWeight, float initMinInhibition, float initMaxInhibition, float initThreshold, std::mt19937 &generator);
+
+		void activate(int settleIter, int measureIter, float leak, float noise, std::mt19937 &generator);
+		void inhibit(const std::vector<float> &excitations, int settleIter, int measureIter, float leak, float noise, std::vector<float> &states, std::mt19937 &generator);
+		void reconstructFromSpikes();
+		void reconstructFromStates();
+		void reconstruct(const std::vector<float> &states, std::vector<float> &reconHidden, std::vector<float> &reconVisible);
+		void reconstructFeedForward(const std::vector<float> &states, std::vector<float> &recon);
+		void learn(float learnFeedForward, float learnRecurrent, float learnLateral, float learnThreshold, float sparsity, float weightDecay, float maxWeightDelta = 0.5f);
+		void learn(const std::vector<float> &rewards, float lambda, float learnFeedForward, float learnRecurrent, float learnLateral, float learnThreshold, float sparsity, float weightDecay, float maxWeightDelta = 0.5f);
+		void stepEnd();
+
+		void setVisibleState(int index, float value) {
+			_visible[index]._input = value;
 		}
 
-		const VisibleLayerDesc &getVisibleLayerDesc(int index) const {
-			return _visibleLayerDescs[index];
+		void setVisibleState(int x, int y, float value) {
+			_visible[x + y * _visibleWidth]._input = value;
 		}
 
-		cl_int2 getHiddenSize() const {
-			return _hiddenSize;
+		float getVisibleRecon(int index) const {
+			return _visible[index]._reconstruction;
 		}
 
-		const DoubleBuffer2D &getHiddenStates() const {
-			return _hiddenStates;
+		float getVisibleRecon(int x, int y) const {
+			return _visible[x + y * _visibleWidth]._reconstruction;
 		}
 
-		const DoubleBuffer2D &getHiddenThresholds() const {
-			return _hiddenThresholds;
+		float getVisibleState(int index) const {
+			return _visible[index]._input;
 		}
+
+		float getVisibleState(int x, int y) const {
+			return _visible[x + y * _visibleWidth]._input;
+		}
+
+		float getHiddenState(int index) const {
+			return _hidden[index]._state;
+		}
+
+		float getHiddenState(int x, int y) const {
+			return _hidden[x + y * _hiddenWidth]._state;
+		}
+
+		float getHiddenStatePrev(int index) const {
+			return _hidden[index]._statePrev;
+		}
+
+		float getHiddenStatePrev(int x, int y) const {
+			return _hidden[x + y * _hiddenWidth]._statePrev;
+		}
+
+		HiddenNode &getHiddenNode(int index) {
+			return _hidden[index];
+		}
+
+		HiddenNode &getHiddenNode(int x, int y) {
+			return _hidden[x + y * _hiddenWidth];
+		}
+
+		int getNumVisible() const {
+			return _visible.size();
+		}
+
+		int getNumHidden() const {
+			return _hidden.size();
+		}
+
+		int getVisibleWidth() const {
+			return _visibleWidth;
+		}
+
+		int getVisibleHeight() const {
+			return _visibleHeight;
+		}
+
+		int getHiddenWidth() const {
+			return _hiddenWidth;
+		}
+
+		int getHiddenHeight() const {
+			return _hiddenHeight;
+		}
+
+		int getReceptiveRadius() const {
+			return _receptiveRadius;
+		}
+
+		float getVHWeight(int hi, int ci) const {
+			return _hidden[hi]._feedForwardConnections[ci]._weight;
+		}
+
+		float getVHWeight(int hx, int hy, int ci) const {
+			return _hidden[hx + hy * _hiddenWidth]._feedForwardConnections[ci]._weight;
+		}
+
+		void getVHWeights(int hx, int hy, std::vector<float> &rectangle) const;
 	};
 }
