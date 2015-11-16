@@ -35,11 +35,11 @@ namespace neo {
 			LayerDesc()
 				: _width(16), _height(16),
 				_receptiveRadius(8), _recurrentRadius(8), _lateralRadius(5), _predictiveRadius(8), _feedBackRadius(8),
-				_learnFeedForward(0.001f), _learnRecurrent(0.001f), _learnLateral(0.1f),
-				_learnFeedBack(0.01f), _learnPrediction(0.01f),
+				_learnFeedForward(0.01f), _learnRecurrent(0.01f), _learnLateral(0.1f),
+				_learnFeedBack(0.05f), _learnPrediction(0.05f),
 				_sdrIterSettle(17), _sdrIterMeasure(5),
-				_sdrLeak(0.2f), _sdrLambda(0.95f), _sdrHiddenDecay(0.01f), _sdrWeightDecay(0.0f), _sdrMaxWeightDelta(0.5f),
-				_sdrSparsity(0.01f), _sdrLearnThreshold(0.02f), _sdrNoise(0.01f),
+				_sdrLeak(0.1f), _sdrLambda(0.95f), _sdrHiddenDecay(0.01f), _sdrWeightDecay(0.0f), _sdrMaxWeightDelta(0.5f),
+				_sdrSparsity(0.1f), _sdrLearnThreshold(0.02f), _sdrNoise(0.01f),
 				_sdrBaselineDecay(0.01f),
 				_sdrSensitivity(6.0f)
 			{}

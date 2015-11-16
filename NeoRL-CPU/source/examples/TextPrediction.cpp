@@ -61,7 +61,7 @@ int main() {
 
 	int inputsRoot = std::ceil(std::sqrt(static_cast<float>(numInputs)));
 
-	std::vector<neo::PredictiveHierarchy::LayerDesc> layerDescs(4);
+	std::vector<neo::PredictiveHierarchy::LayerDesc> layerDescs(3);
 
 	// Fill out layer descriptions
 	layerDescs[0]._width = 16;
@@ -73,19 +73,16 @@ int main() {
 	layerDescs[2]._width = 16;
 	layerDescs[2]._height = 16;
 
-	layerDescs[3]._width = 16;
-	layerDescs[3]._height = 16;
-
 	neo::PredictiveHierarchy ph;
 
-	ph.createRandom(inputsRoot, inputsRoot, 8, layerDescs, -0.01f, 0.01f, 0.01f, 0.05f, 0.1f, generator);
+	ph.createRandom(inputsRoot, inputsRoot, 16, layerDescs, -0.01f, 0.01f, 0.01f, 0.05f, 0.1f, generator);
 
 	// ---------------------------------- Iterate Over Corpus ----------------------------------
 
 	// Current character index
 	int current = 0;
 
-	for (int i = 0; i < 100; i++) {
+	for (int i = 0; i < 10000; i++) {
 		for (int i = 0; i < inputsRoot * inputsRoot; i++)
 			ph.setInput(i, 0.0f);
 
