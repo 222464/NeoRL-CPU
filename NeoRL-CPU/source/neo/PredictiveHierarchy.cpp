@@ -137,12 +137,13 @@ void PredictiveHierarchy::createRandom(int inputWidth, int inputHeight, int inpu
 void PredictiveHierarchy::simStep(std::mt19937 &generator, bool learn) {
 	// Feature extraction
 	for (int l = 0; l < _layers.size(); l++) {
-		_layers[l]._sdr.activate(_layerDescs[l]._sdrIterSettle, _layerDescs[l]._sdrIterMeasure, _layerDescs[l]._sdrLeak, _layerDescs[l]._sdrNoise, generator);
+		_layers[l]._sdr.activate(_layerDescs[l]._sdrIter, _layerDescs[l]._sdrLeak, _layerDescs[l]._sdrNoise, generator);
 
 		// Set inputs for next layer if there is one
 		if (l < _layers.size() - 1) {
-			for (int i = 0; i < _layers[l]._sdr.getNumHidden(); i++)
+			for (int i = 0; i < _layers[l]._sdr.getNumHidden(); i++) {
 				_layers[l + 1]._sdr.setVisibleState(i, _layers[l]._sdr.getHiddenState(i));
+			}
 		}
 	}
 
@@ -165,16 +166,14 @@ void PredictiveHierarchy::simStep(std::mt19937 &generator, bool learn) {
 
 				p._baseline = (1.0f - _layerDescs[l]._sdrBaselineDecay) * p._baseline + _layerDescs[l]._sdrBaselineDecay * error2;
 
-				if (predictionError != 0.0f) {
-					if (l < _layers.size() - 1) {
-						for (int ci = 0; ci < p._feedBackConnections.size(); ci++)
-							p._feedBackConnections[ci]._weight += _layerDescs[l]._learnFeedBack * predictionError * _layers[l + 1]._predictionNodes[p._feedBackConnections[ci]._index]._statePrev;
-					}
-
-					// Predictive
-					for (int ci = 0; ci < p._predictiveConnections.size(); ci++)
-						p._predictiveConnections[ci]._weight += _layerDescs[l]._learnPrediction * predictionError * _layers[l]._sdr.getHiddenStatePrev(p._predictiveConnections[ci]._index);
+				if (l < _layers.size() - 1) {
+					for (int ci = 0; ci < p._feedBackConnections.size(); ci++)
+						p._feedBackConnections[ci]._weight += _layerDescs[l]._learnFeedBack * predictionError * _layers[l + 1]._predictionNodes[p._feedBackConnections[ci]._index]._statePrev;
 				}
+
+				// Predictive
+				for (int ci = 0; ci < p._predictiveConnections.size(); ci++)
+					p._predictiveConnections[ci]._weight += _layerDescs[l]._learnPrediction * predictionError * _layers[l]._sdr.getHiddenStatePrev(p._predictiveConnections[ci]._index);
 			}
 
 			float activation = 0.0f;
@@ -184,7 +183,7 @@ void PredictiveHierarchy::simStep(std::mt19937 &generator, bool learn) {
 				for (int ci = 0; ci < p._feedBackConnections.size(); ci++)
 					activation += p._feedBackConnections[ci]._weight * _layers[l + 1]._predictionNodes[p._feedBackConnections[ci]._index]._state;
 			}
-			
+
 			// Predictive
 			for (int ci = 0; ci < p._predictiveConnections.size(); ci++)
 				activation += p._predictiveConnections[ci]._weight * _layers[l]._sdr.getHiddenState(p._predictiveConnections[ci]._index);
@@ -203,10 +202,8 @@ void PredictiveHierarchy::simStep(std::mt19937 &generator, bool learn) {
 		if (learn) {
 			float predictionError = _layers.front()._sdr.getVisibleState(pi) - p._statePrev;
 
-			if (predictionError != 0.0f) {
-				for (int ci = 0; ci < p._feedBackConnections.size(); ci++)
-					p._feedBackConnections[ci]._weight += _learnInputFeedBack * predictionError * _layers.front()._predictionNodes[p._feedBackConnections[ci]._index]._statePrev;
-			}
+			for (int ci = 0; ci < p._feedBackConnections.size(); ci++)
+				p._feedBackConnections[ci]._weight += _learnInputFeedBack * predictionError * _layers.front()._predictionNodes[p._feedBackConnections[ci]._index]._statePrev;
 		}
 
 		float activation = 0.0f;
@@ -222,7 +219,7 @@ void PredictiveHierarchy::simStep(std::mt19937 &generator, bool learn) {
 
 	for (int l = 0; l < _layers.size(); l++) {
 		if (learn)
-			_layers[l]._sdr.learn(rewards[l], _layerDescs[l]._sdrLambda, _layerDescs[l]._learnFeedForward, _layerDescs[l]._learnRecurrent, _layerDescs[l]._learnLateral, _layerDescs[l]._sdrLearnThreshold, _layerDescs[l]._sdrSparsity, _layerDescs[l]._sdrWeightDecay, _layerDescs[l]._sdrMaxWeightDelta); //attentions[l], 
+			_layers[l]._sdr.learn(_layerDescs[l]._learnFeedForward, _layerDescs[l]._learnRecurrent, _layerDescs[l]._learnLateral, _layerDescs[l]._sdrLearnThreshold, _layerDescs[l]._sdrSparsity, _layerDescs[l]._sdrWeightDecay, _layerDescs[l]._sdrMaxWeightDelta); //attentions[l], 
 
 		_layers[l]._sdr.stepEnd();
 

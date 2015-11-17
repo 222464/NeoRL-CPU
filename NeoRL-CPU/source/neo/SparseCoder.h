@@ -35,7 +35,8 @@ namespace neo {
 			float _threshold;
 
 			HiddenNode()
-				: _activation(0.0f), _spike(0.0f), _spikePrev(0.0f), _state(0.0f), _statePrev(0.0f), _reconstruction(0.0f), _input(0.0f), _threshold(1.0f)
+				: _activation(0.0f), _spike(0.0f), _spikePrev(0.0f),
+				_state(0.0f), _statePrev(0.0f), _reconstruction(0.0f), _input(0.0f), _threshold(1.0f)
 			{}
 		};
 
@@ -64,10 +65,8 @@ namespace neo {
 
 		void createRandom(int visibleWidth, int visibleHeight, int hiddenWidth, int hiddenHeight, int receptiveRadius, int recurrentRadius, int lateralRadius, float initMinWeight, float initMaxWeight, float initMinInhibition, float initMaxInhibition, float initThreshold, std::mt19937 &generator);
 
-		void activate(int settleIter, int measureIter, float leak, float noise, std::mt19937 &generator);
-		void inhibit(const std::vector<float> &excitations, int settleIter, int measureIter, float leak, float noise, std::vector<float> &states, std::mt19937 &generator);
-		void reconstructFromSpikes();
-		void reconstructFromStates();
+		void activate(int iter, float leak, float noise, std::mt19937 &generator);
+		void reconstructFromStates(float multiplier);
 		void reconstruct(const std::vector<float> &states, std::vector<float> &reconHidden, std::vector<float> &reconVisible);
 		void reconstructFeedForward(const std::vector<float> &states, std::vector<float> &recon);
 		void learn(float learnFeedForward, float learnRecurrent, float learnLateral, float learnThreshold, float sparsity, float weightDecay, float maxWeightDelta = 0.5f);
@@ -159,5 +158,7 @@ namespace neo {
 		}
 
 		void getVHWeights(int hx, int hy, std::vector<float> &rectangle) const;
+
+		friend class HTSL;
 	};
 }

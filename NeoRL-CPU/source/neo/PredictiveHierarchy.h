@@ -20,7 +20,7 @@ namespace neo {
 
 			float _learnFeedBack, _learnPrediction;
 
-			int _sdrIterSettle, _sdrIterMeasure;
+			int _sdrIter;
 			float _sdrLeak;
 			float _sdrLambda;
 			float _sdrHiddenDecay;
@@ -34,12 +34,12 @@ namespace neo {
 
 			LayerDesc()
 				: _width(16), _height(16),
-				_receptiveRadius(8), _recurrentRadius(8), _lateralRadius(5), _predictiveRadius(8), _feedBackRadius(8),
-				_learnFeedForward(0.01f), _learnRecurrent(0.01f), _learnLateral(0.1f),
+				_receptiveRadius(3), _recurrentRadius(3), _lateralRadius(3), _predictiveRadius(3), _feedBackRadius(3),
+				_learnFeedForward(0.001f), _learnRecurrent(0.001f), _learnLateral(0.005f),
 				_learnFeedBack(0.05f), _learnPrediction(0.05f),
-				_sdrIterSettle(17), _sdrIterMeasure(5),
+				_sdrIter(17),
 				_sdrLeak(0.1f), _sdrLambda(0.95f), _sdrHiddenDecay(0.01f), _sdrWeightDecay(0.0f), _sdrMaxWeightDelta(0.5f),
-				_sdrSparsity(0.1f), _sdrLearnThreshold(0.02f), _sdrNoise(0.01f),
+				_sdrSparsity(0.03f), _sdrLearnThreshold(0.02f), _sdrNoise(0.01f),
 				_sdrBaselineDecay(0.01f),
 				_sdrSensitivity(6.0f)
 			{}
@@ -101,7 +101,7 @@ namespace neo {
 		float _learnInputFeedBack;
 
 		PredictiveHierarchy()
-			: _learnInputFeedBack(0.01f)
+			: _learnInputFeedBack(0.05f)
 		{}
 
 		void createRandom(int inputWidth, int inputHeight, int inputFeedBackRadius, const std::vector<LayerDesc> &layerDescs, float initMinWeight, float initMaxWeight, float initMinInhibition, float initMaxInhibition, float initThreshold, std::mt19937 &generator);
@@ -113,7 +113,7 @@ namespace neo {
 		}
 
 		void setInput(int x, int y, float value) {
-			setInput(x + y * _layers.front()._sdr.getVisibleWidth(), value);
+			setInput(x + y * _layerDescs.front()._width, value);
 		}
 
 		float getPrediction(int index) const {

@@ -113,7 +113,7 @@ void SparseCoder::createRandom(int visibleWidth, int visibleHeight, int hiddenWi
 	}
 }
 
-void SparseCoder::activate(int settleIter, int measureIter, float leak, float noise, std::mt19937 &generator) {
+void SparseCoder::activate(int iter, float leak, float noise, std::mt19937 &generator) {
 	std::normal_distribution<float> noiseDist(0.0f, noise);
 
 	std::vector<float> visibleErrors(_visible.size());
@@ -125,46 +125,9 @@ void SparseCoder::activate(int settleIter, int measureIter, float leak, float no
 		_hidden[hi]._state = 0.0f;
 	}
 
-	for (int it = 0; it < settleIter; it++) {
-		for (int vi = 0; vi < _visible.size(); vi++)
-			visibleErrors[vi] = _visible[vi]._input - _visible[vi]._reconstruction;
+	float settleCounter = 0.0f;
 
-		for (int hi = 0; hi < _hidden.size(); hi++)
-			hiddenErrors[hi] = _hidden[hi]._statePrev - _hidden[hi]._reconstruction;
-
-		for (int hi = 0; hi < _hidden.size(); hi++) {
-			float excitation = 0.0f;
-
-			for (int ci = 0; ci < _hidden[hi]._feedForwardConnections.size(); ci++)
-				excitation += visibleErrors[_hidden[hi]._feedForwardConnections[ci]._index] * _hidden[hi]._feedForwardConnections[ci]._weight;
-
-			for (int ci = 0; ci < _hidden[hi]._recurrentConnections.size(); ci++)
-				excitation += hiddenErrors[_hidden[hi]._recurrentConnections[ci]._index] * _hidden[hi]._recurrentConnections[ci]._weight;
-
-			float inhibition = 0.0f;
-
-			for (int ci = 0; ci < _hidden[hi]._lateralConnections.size(); ci++)
-				inhibition += _hidden[_hidden[hi]._lateralConnections[ci]._index]._spikePrev * _hidden[hi]._lateralConnections[ci]._weight;
-
-			_hidden[hi]._activation = (1.0f - leak) * _hidden[hi]._activation + excitation - inhibition;
-
-			if (_hidden[hi]._activation > _hidden[hi]._threshold) {
-				_hidden[hi]._activation = 0.0f;
-				_hidden[hi]._spike = 1.0f;
-			}
-			else
-				_hidden[hi]._spike = 0.0f;
-		}
-
-		for (int hi = 0; hi < _hidden.size(); hi++)
-			_hidden[hi]._spikePrev = _hidden[hi]._spike;
-
-		reconstructFromSpikes();
-	}
-
-	float measureIterInv = 1.0f / measureIter;
-
-	for (int it = 0; it < measureIter; it++) {
+	for (int it = 0; it < iter; it++) {
 		for (int vi = 0; vi < _visible.size(); vi++)
 			visibleErrors[vi] = _visible[vi]._input - _visible[vi]._reconstruction;
 
@@ -194,79 +157,27 @@ void SparseCoder::activate(int settleIter, int measureIter, float leak, float no
 			else
 				_hidden[hi]._spike = 0.0f;
 
-			_hidden[hi]._state += measureIterInv * _hidden[hi]._spike;
+			_hidden[hi]._state += _hidden[hi]._spike;
 		}
 
 		for (int hi = 0; hi < _hidden.size(); hi++)
 			_hidden[hi]._spikePrev = _hidden[hi]._spike;
 
-		reconstructFromSpikes();
+		settleCounter += 1.0f;
+
+		float multiplier = 1.0f / settleCounter;
+
+		reconstructFromStates(multiplier);
 	}
 
-	reconstructFromStates();
+	// Divide
+	float multiplier = 1.0f / settleCounter;
+
+	for (int hi = 0; hi < _hidden.size(); hi++)
+		_hidden[hi]._state *= multiplier;
 }
 
-void SparseCoder::inhibit(const std::vector<float> &excitations, int settleIter, int measureIter, float leak, float noise, std::vector<float> &states, std::mt19937 &generator) {
-	std::normal_distribution<float> noiseDist(0.0f, noise);
-
-	for (int hi = 0; hi < _hidden.size(); hi++) {
-		_hidden[hi]._activation = 0.0f;
-
-		states[hi] = 0.0f;
-	}
-
-	for (int it = 0; it < settleIter; it++) {
-		for (int hi = 0; hi < _hidden.size(); hi++) {
-			float excitation = excitations[hi];
-
-			float inhibition = 0.0f;
-
-			for (int ci = 0; ci < _hidden[hi]._lateralConnections.size(); ci++)
-				inhibition += _hidden[_hidden[hi]._lateralConnections[ci]._index]._spikePrev * _hidden[hi]._lateralConnections[ci]._weight;
-
-			_hidden[hi]._activation = (1.0f - leak) * _hidden[hi]._activation + excitation - inhibition;
-
-			if (_hidden[hi]._activation > _hidden[hi]._threshold) {
-				_hidden[hi]._activation = 0.0f;
-				_hidden[hi]._spike = 1.0f;
-			}
-			else
-				_hidden[hi]._spike = 0.0f;
-		}
-
-		for (int hi = 0; hi < _hidden.size(); hi++)
-			_hidden[hi]._spikePrev = _hidden[hi]._spike;
-	}
-
-	float measureIterInv = 1.0f / measureIter;
-
-	for (int it = 0; it < measureIter; it++) {
-		for (int hi = 0; hi < _hidden.size(); hi++) {
-			float excitation = excitations[hi];
-
-			float inhibition = 0.0f;
-
-			for (int ci = 0; ci < _hidden[hi]._lateralConnections.size(); ci++)
-				inhibition += _hidden[_hidden[hi]._lateralConnections[ci]._index]._spikePrev * _hidden[hi]._lateralConnections[ci]._weight;
-
-			_hidden[hi]._activation = (1.0f - leak) * _hidden[hi]._activation + excitation - inhibition;
-
-			if (_hidden[hi]._activation > _hidden[hi]._threshold) {
-				_hidden[hi]._activation = 0.0f;
-				_hidden[hi]._spike = 1.0f;
-			}
-			else
-				_hidden[hi]._spike = 0.0f;
-
-			states[hi] += measureIterInv * _hidden[hi]._spike;
-		}
-
-		for (int hi = 0; hi < _hidden.size(); hi++)
-			_hidden[hi]._spikePrev = _hidden[hi]._spike;
-	}
-}
-
-void SparseCoder::reconstructFromSpikes() {
+void SparseCoder::reconstructFromStates(float multiplier) {
 	std::vector<float> visibleDivs(_visible.size(), 0.0f);
 	std::vector<float> hiddenDivs(_hidden.size(), 0.0f);
 
@@ -277,34 +188,11 @@ void SparseCoder::reconstructFromSpikes() {
 		_hidden[hi]._reconstruction = 0.0f;
 
 	for (int hi = 0; hi < _hidden.size(); hi++) {
-		if (_hidden[hi]._spike != 0.0f) {
-			for (int ci = 0; ci < _hidden[hi]._feedForwardConnections.size(); ci++)
-				_visible[_hidden[hi]._feedForwardConnections[ci]._index]._reconstruction += _hidden[hi]._feedForwardConnections[ci]._weight * _hidden[hi]._spike;
+		for (int ci = 0; ci < _hidden[hi]._feedForwardConnections.size(); ci++)
+			_visible[_hidden[hi]._feedForwardConnections[ci]._index]._reconstruction += _hidden[hi]._feedForwardConnections[ci]._weight * _hidden[hi]._state * multiplier;
 
-			for (int ci = 0; ci < _hidden[hi]._recurrentConnections.size(); ci++)
-				_hidden[_hidden[hi]._recurrentConnections[ci]._index]._reconstruction += _hidden[hi]._recurrentConnections[ci]._weight * _hidden[hi]._spike;
-		}
-	}
-}
-
-void SparseCoder::reconstructFromStates() {
-	std::vector<float> visibleDivs(_visible.size(), 0.0f);
-	std::vector<float> hiddenDivs(_hidden.size(), 0.0f);
-
-	for (int vi = 0; vi < _visible.size(); vi++)
-		_visible[vi]._reconstruction = 0.0f;
-
-	for (int hi = 0; hi < _hidden.size(); hi++)
-		_hidden[hi]._reconstruction = 0.0f;
-
-	for (int hi = 0; hi < _hidden.size(); hi++) {
-		if (_hidden[hi]._state != 0.0f) {
-			for (int ci = 0; ci < _hidden[hi]._feedForwardConnections.size(); ci++)
-				_visible[_hidden[hi]._feedForwardConnections[ci]._index]._reconstruction += _hidden[hi]._feedForwardConnections[ci]._weight * _hidden[hi]._state;
-
-			for (int ci = 0; ci < _hidden[hi]._recurrentConnections.size(); ci++)
-				_hidden[_hidden[hi]._recurrentConnections[ci]._index]._reconstruction += _hidden[hi]._recurrentConnections[ci]._weight * _hidden[hi]._state;
-		}
+		for (int ci = 0; ci < _hidden[hi]._recurrentConnections.size(); ci++)
+			_hidden[_hidden[hi]._recurrentConnections[ci]._index]._reconstruction += _hidden[hi]._recurrentConnections[ci]._weight * _hidden[hi]._state * multiplier;
 	}
 }
 
@@ -319,13 +207,11 @@ void SparseCoder::reconstruct(const std::vector<float> &states, std::vector<floa
 	reconHidden.assign(_hidden.size(), 0.0f);
 
 	for (int hi = 0; hi < _hidden.size(); hi++) {
-		if (states[hi] != 0.0f) {
-			for (int ci = 0; ci < _hidden[hi]._feedForwardConnections.size(); ci++)
-				reconVisible[_hidden[hi]._feedForwardConnections[ci]._index] += _hidden[hi]._feedForwardConnections[ci]._weight * states[hi];
+		for (int ci = 0; ci < _hidden[hi]._feedForwardConnections.size(); ci++)
+			reconVisible[_hidden[hi]._feedForwardConnections[ci]._index] += _hidden[hi]._feedForwardConnections[ci]._weight * states[hi];
 
-			for (int ci = 0; ci < _hidden[hi]._recurrentConnections.size(); ci++)
-				reconHidden[_hidden[hi]._recurrentConnections[ci]._index] += _hidden[hi]._recurrentConnections[ci]._weight * states[hi];
-		}
+		for (int ci = 0; ci < _hidden[hi]._recurrentConnections.size(); ci++)
+			reconHidden[_hidden[hi]._recurrentConnections[ci]._index] += _hidden[hi]._recurrentConnections[ci]._weight * states[hi];
 	}
 }
 
@@ -336,10 +222,8 @@ void SparseCoder::reconstructFeedForward(const std::vector<float> &states, std::
 	recon.assign(_visible.size(), 0.0f);
 
 	for (int hi = 0; hi < _hidden.size(); hi++) {
-		if (states[hi] != 0.0f) {
-			for (int ci = 0; ci < _hidden[hi]._feedForwardConnections.size(); ci++)
-				recon[_hidden[hi]._feedForwardConnections[ci]._index] += _hidden[hi]._feedForwardConnections[ci]._weight * states[hi];
-		}
+		for (int ci = 0; ci < _hidden[hi]._feedForwardConnections.size(); ci++)
+			recon[_hidden[hi]._feedForwardConnections[ci]._index] += _hidden[hi]._feedForwardConnections[ci]._weight * states[hi];
 	}
 }
 
@@ -356,22 +240,22 @@ void SparseCoder::learn(float learnFeedForward, float learnRecurrent, float lear
 	for (int hi = 0; hi < _hidden.size(); hi++) {
 		float learn = _hidden[hi]._state;
 
-		if (learn != 0.0f) {
-			for (int ci = 0; ci < _hidden[hi]._feedForwardConnections.size(); ci++) {
-				float delta = learnFeedForward * learn * visibleErrors[_hidden[hi]._feedForwardConnections[ci]._index] - weightDecay * _hidden[hi]._feedForwardConnections[ci]._weight;
+		//if (_hidden[hi]._activation != 0.0f)
+		for (int ci = 0; ci < _hidden[hi]._feedForwardConnections.size(); ci++) {
+			float delta = learnFeedForward * learn * visibleErrors[_hidden[hi]._feedForwardConnections[ci]._index] - weightDecay * _hidden[hi]._feedForwardConnections[ci]._weight;
 
-				_hidden[hi]._feedForwardConnections[ci]._weight += std::min(maxWeightDelta, std::max(-maxWeightDelta, delta));
-			}
+			_hidden[hi]._feedForwardConnections[ci]._weight += std::min(maxWeightDelta, std::max(-maxWeightDelta, delta));
+		}
 
-			for (int ci = 0; ci < _hidden[hi]._recurrentConnections.size(); ci++) {
-				float delta = learnRecurrent * learn * hiddenErrors[_hidden[hi]._recurrentConnections[ci]._index] - weightDecay * _hidden[hi]._recurrentConnections[ci]._weight;
+		for (int ci = 0; ci < _hidden[hi]._recurrentConnections.size(); ci++) {
+			float delta = learnRecurrent * learn * hiddenErrors[_hidden[hi]._recurrentConnections[ci]._index] - weightDecay * _hidden[hi]._recurrentConnections[ci]._weight;
 
-				_hidden[hi]._recurrentConnections[ci]._weight += std::min(maxWeightDelta, std::max(-maxWeightDelta, delta));
-			}
+			_hidden[hi]._recurrentConnections[ci]._weight += std::min(maxWeightDelta, std::max(-maxWeightDelta, delta));
 		}
 
 		for (int ci = 0; ci < _hidden[hi]._lateralConnections.size(); ci++)
 			_hidden[hi]._lateralConnections[ci]._weight = std::max(0.0f, _hidden[hi]._lateralConnections[ci]._weight + learnLateral * (_hidden[hi]._state * _hidden[_hidden[hi]._lateralConnections[ci]._index]._state - sparsity * sparsity));
+
 
 		_hidden[hi]._threshold = std::max(0.0f, _hidden[hi]._threshold + (_hidden[hi]._state - sparsity) * learnThreshold);
 	}
@@ -390,25 +274,22 @@ void SparseCoder::learn(const std::vector<float> &rewards, float lambda, float l
 	for (int hi = 0; hi < _hidden.size(); hi++) {
 		float learn = _hidden[hi]._state;
 
-		if (rewards[hi] != 0.0f) {
-			for (int ci = 0; ci < _hidden[hi]._feedForwardConnections.size(); ci++) {
-				float delta = learnFeedForward * rewards[hi] * _hidden[hi]._feedForwardConnections[ci]._trace - weightDecay * _hidden[hi]._feedForwardConnections[ci]._weight;
+		//if (_hidden[hi]._activation != 0.0f)
+		for (int ci = 0; ci < _hidden[hi]._feedForwardConnections.size(); ci++) {
+			float delta = learnFeedForward * rewards[hi] * _hidden[hi]._feedForwardConnections[ci]._trace - weightDecay * _hidden[hi]._feedForwardConnections[ci]._weight;
 
-				_hidden[hi]._feedForwardConnections[ci]._weight += std::min(maxWeightDelta, std::max(-maxWeightDelta, delta));
-			}
+			_hidden[hi]._feedForwardConnections[ci]._weight += std::min(maxWeightDelta, std::max(-maxWeightDelta, delta));
 
-			for (int ci = 0; ci < _hidden[hi]._recurrentConnections.size(); ci++) {
-				float delta = learnRecurrent * rewards[hi] * _hidden[hi]._recurrentConnections[ci]._trace - weightDecay * _hidden[hi]._recurrentConnections[ci]._weight;
-
-				_hidden[hi]._recurrentConnections[ci]._weight += std::min(maxWeightDelta, std::max(-maxWeightDelta, delta));
-			}
+			_hidden[hi]._feedForwardConnections[ci]._trace = lambda * _hidden[hi]._feedForwardConnections[ci]._trace + learn * visibleErrors[_hidden[hi]._feedForwardConnections[ci]._index];
 		}
 
-		for (int ci = 0; ci < _hidden[hi]._feedForwardConnections.size(); ci++)
-			_hidden[hi]._feedForwardConnections[ci]._trace = lambda * _hidden[hi]._feedForwardConnections[ci]._trace + learn * visibleErrors[_hidden[hi]._feedForwardConnections[ci]._index];
+		for (int ci = 0; ci < _hidden[hi]._recurrentConnections.size(); ci++) {
+			float delta = learnRecurrent * rewards[hi] * _hidden[hi]._recurrentConnections[ci]._trace - weightDecay * _hidden[hi]._recurrentConnections[ci]._weight;
 
-		for (int ci = 0; ci < _hidden[hi]._recurrentConnections.size(); ci++)
+			_hidden[hi]._recurrentConnections[ci]._weight += std::min(maxWeightDelta, std::max(-maxWeightDelta, delta));
+
 			_hidden[hi]._recurrentConnections[ci]._trace = lambda * _hidden[hi]._recurrentConnections[ci]._trace + learn * hiddenErrors[_hidden[hi]._recurrentConnections[ci]._index];
+		}
 
 		for (int ci = 0; ci < _hidden[hi]._lateralConnections.size(); ci++)
 			_hidden[hi]._lateralConnections[ci]._weight = std::max(0.0f, _hidden[hi]._lateralConnections[ci]._weight + learnLateral * (_hidden[hi]._state * _hidden[_hidden[hi]._lateralConnections[ci]._index]._state - sparsity * sparsity));
