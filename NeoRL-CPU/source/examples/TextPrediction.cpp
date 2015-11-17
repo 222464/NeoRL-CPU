@@ -125,7 +125,7 @@ int main() {
 			if (ph.getPrediction(i) > ph.getPrediction(predIndex))
 				predIndex = i;
 
-		char predChar = predIndex + minimum;
+		predChar = predIndex + minimum;
 
 		std::cout << predChar;
 	}
