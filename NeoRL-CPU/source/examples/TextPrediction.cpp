@@ -35,14 +35,9 @@ int main() {
 
 	// ---------------------------------- Find Character Set ----------------------------------
 
-	std::unordered_set<char> characters;
-
 	for (int i = 0; i < test.length(); i++) {
 		minimum = std::min(static_cast<int>(test[i]), minimum);
 		maximum = std::max(static_cast<int>(test[i]), maximum);
-
-		if (characters.find(test[i]) == characters.end())
-			characters.insert(test[i]);
 	}
 
 	// ---------------------------------- Create Hierarchy ----------------------------------
@@ -73,7 +68,7 @@ int main() {
 	// Current character index
 	int current = 0;
 
-	for (int i = 0; i < 10000; i++) {
+	for (size_t i = 0; i < 1000000; i++) {
 		for (int i = 0; i < inputsRoot * inputsRoot; i++)
 			ph.setInput(i, 0.0f);
 

@@ -1,1 +1,5 @@
-abbacabbacdddddda
+Instead of relying on real world data, we can instead challenge the machine learning models using simulations reminiscent of classic text adventure games. The tasks are generated using a simulation reminiscent of a classic text adventure game. By using an artificial world we know the exact state the world is in and the exact set of rules by which it runs. Thanks to this, generating training and testing data is trivial.
+
+As opposed to real world material, the data is also well curated. The vocabulary (set of words) is constrained, the sentences are always well structured (the only noise is the noise we want to challenge the model with), and the performance on specific tasks can be tested without other tasks interferring. As we know the exact state of the world and how it got to that point, we can also provide additional helpful information, such as pointing out precisely how the answer can be reached (the supporting facts in bold above).
+
+With the synethetic dataset, all the commonsense knowledge and reasoning required for the test set should be contained in the training set. That way, if a machine learning model then fails to solve the task, we know that the challenge is in the model itself, and not the data (or lack of data) it was exposed to.
