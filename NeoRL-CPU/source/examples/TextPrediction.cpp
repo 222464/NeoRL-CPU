@@ -47,28 +47,31 @@ int main() {
 
 	int inputsRoot = std::ceil(std::sqrt(static_cast<float>(numInputs)));
 
+	std::cout << "Dimensions: " << numInputs << " / " << inputsRoot << std::endl;
+	std::cout << std::endl;
+
 	std::vector<neo::PredictiveHierarchy::LayerDesc> layerDescs(3);
 
 	// Fill out layer descriptions
-	layerDescs[0]._width = 16;
-	layerDescs[0]._height = 16;
+	layerDescs[0]._width = 8;
+	layerDescs[0]._height = 8;
 	
-	layerDescs[1]._width = 16;
-	layerDescs[1]._height = 16;
+	layerDescs[1]._width = 8;
+	layerDescs[1]._height = 8;
 
-	layerDescs[2]._width = 16;
-	layerDescs[2]._height = 16;
+	layerDescs[2]._width = 8;
+	layerDescs[2]._height = 8;
 
 	neo::PredictiveHierarchy ph;
 
-	ph.createRandom(inputsRoot, inputsRoot, 16, layerDescs, -0.01f, 0.01f, 0.01f, 0.05f, 0.1f, generator);
+	ph.createRandom(inputsRoot, inputsRoot, 8, layerDescs, -0.01f, 0.01f, 0.01f, 0.05f, 0.1f, generator);
 
 	// ---------------------------------- Iterate Over Corpus ----------------------------------
 
 	// Current character index
 	int current = 0;
 
-	for (size_t i = 0; i < 1000000; i++) {
+	for (size_t it = 0; it < 10000; it++) {
 		for (int i = 0; i < inputsRoot * inputsRoot; i++)
 			ph.setInput(i, 0.0f);
 
@@ -80,7 +83,7 @@ int main() {
 
 		int predIndex = 0;
 
-		for (int i = 1; i < numInputs; i++)
+		for (int i = 1; i < inputsRoot * inputsRoot; i++)
 			if (ph.getPrediction(i) > ph.getPrediction(predIndex))
 				predIndex = i;
 
@@ -99,6 +102,33 @@ int main() {
 			std::cout << "\n";
 	}
 
+	std::cout << std::endl;
+
+	std::cout << "Generating text:" << std::endl;
+	std::cout << std::endl;
+
+	char predChar = test[current];
+
+	for (size_t it = 0; it < 1000; it++) {
+		for (int i = 0; i < inputsRoot * inputsRoot; i++)
+			ph.setInput(i, 0.0f);
+
+		int index = predChar - minimum;
+
+		ph.setInput(index, 1.0f);
+
+		ph.simStepGenerate(generator, 0.01f);
+
+		int predIndex = 0;
+
+		for (int i = 1; i < inputsRoot * inputsRoot; i++)
+			if (ph.getPrediction(i) > ph.getPrediction(predIndex))
+				predIndex = i;
+
+		char predChar = predIndex + minimum;
+
+		std::cout << predChar;
+	}
 	return 0;
 }
 
