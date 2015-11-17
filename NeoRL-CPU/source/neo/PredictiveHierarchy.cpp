@@ -162,7 +162,7 @@ void PredictiveHierarchy::simStep(std::mt19937 &generator, bool learn) {
 
 				float error2 = predictionError * predictionError;
 
-				rewards[l][pi] = sigmoid(_layerDescs[l]._sdrSensitivity * (p._baseline - error2));
+				rewards[l][pi] = sigmoid(_layerDescs[l]._sdrSensitivity * (error2 - p._baseline));
 
 				p._baseline = (1.0f - _layerDescs[l]._sdrBaselineDecay) * p._baseline + _layerDescs[l]._sdrBaselineDecay * error2;
 

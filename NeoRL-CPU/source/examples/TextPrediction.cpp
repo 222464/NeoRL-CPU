@@ -45,19 +45,10 @@ int main() {
 			characters.insert(test[i]);
 	}
 
-	std::vector<char> indexToChar;
-	std::unordered_map<char, int> charToIndex;
-
-	// Map characters to indices and vice versa
-	for (std::unordered_set<char>::iterator it = characters.begin(); it != characters.end(); it++) {
-		indexToChar.push_back(*it);
-		charToIndex[*it] = indexToChar.size() - 1;
-	}
-
 	// ---------------------------------- Create Hierarchy ----------------------------------
 
 	// Organize inputs into a square input region
-	int numInputs = indexToChar.size();
+	int numInputs = maximum - minimum + 1;
 
 	int inputsRoot = std::ceil(std::sqrt(static_cast<float>(numInputs)));
 
@@ -86,7 +77,7 @@ int main() {
 		for (int i = 0; i < inputsRoot * inputsRoot; i++)
 			ph.setInput(i, 0.0f);
 
-		int index = charToIndex[test[current]];
+		int index = test[current] - minimum;
 
 		ph.setInput(index, 1.0f);
 
@@ -98,7 +89,7 @@ int main() {
 			if (ph.getPrediction(i) > ph.getPrediction(predIndex))
 				predIndex = i;
 
-		char predChar = indexToChar[predIndex];
+		char predChar = predIndex + minimum;
 
 		std::cout << predChar;
 
