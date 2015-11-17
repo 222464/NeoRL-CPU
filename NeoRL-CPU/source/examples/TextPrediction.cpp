@@ -105,7 +105,7 @@ void train(neo::PredictiveHierarchy& ph, std::mt19937& generator,
 }
 
 void sample(neo::PredictiveHierarchy& ph, std::mt19937& generator,
-           char seed, int nSamples, VectorCodec& textcodec) {
+           char seed, int nSamples, VectorCodec& textcodec, float seedNoise = 0.5, float predNoise = 0.05) {
     
 	std::uniform_real_distribution<float> dist01(0.0f, 1.0f);
 	
@@ -113,11 +113,11 @@ void sample(neo::PredictiveHierarchy& ph, std::mt19937& generator,
 	textcodec.encode();
 	
 	for (int j = 0; j < textcodec.N; j++) {
-        ph.setInput(j, textcodec.vector[j] + dist01(generator)*0.5);
+        ph.setInput(j, textcodec.vector[j] + dist01(generator)*seedNoise);
     }
     ph.simStep(generator, false);
     
-    std::cout << "seed: " << seed << " i: " << textcodec.symIndex << " sample: ";
+    std::cout << "seed: " << seed << " i: " << textcodec.symIndex << " sample: \"";
     
     for (size_t i = 1; i < nSamples; i++) {
 
@@ -129,16 +129,16 @@ void sample(neo::PredictiveHierarchy& ph, std::mt19937& generator,
 			
 		char predChar = textcodec.symbol;
         
-		std::cout << predChar << " ";
+		std::cout << predChar;
 		
         for (int j = 0; j < textcodec.N; j++) {
-            ph.setInput(j, ph.getPrediction(j) + dist01(generator)*0.05);
+            ph.setInput(j, ph.getPrediction(j) + dist01(generator)*predNoise);
         }
         
         ph.simStep(generator, false);
     }
     
-    std::cout << std::endl;
+    std::cout << "\"" << std::endl;
 }
 
 int main(int argc, const char** argv) {
@@ -156,6 +156,9 @@ int main(int argc, const char** argv) {
     parser.addArgument("--ifbradius", 1);
     parser.addArgument("--lw", 1);
     parser.addArgument("--lh", 1);
+    parser.addArgument("--ssize", 1);
+    parser.addArgument("--sseednoise", 1);
+    parser.addArgument("--sprednoise", 1);
     
     parser.parse(argc, argv);
     
@@ -203,16 +206,23 @@ int main(int argc, const char** argv) {
 	// ---------------------------------- Iterate Over Corpus ----------------------------------
     int numEpochs = std::atoi(parser.retrieve("epochs", "10").c_str());
     int numSamples = std::atoi(parser.retrieve("samples", "10").c_str());
+    int sampleSize = std::atoi(parser.retrieve("ssize", std::to_string(test.length())).c_str());
+    float sampleSeedNoise = std::atof(parser.retrieve("sseednoise", "0.5").c_str());
+    float samplePredNoise = std::atof(parser.retrieve("sprednoise", "0.05").c_str());
     
     std::cout << "NeoRL text prediction experiment" << std::endl;
     std::cout << "Corpus: " << corpusPath << " size: " << test.length() << " alphabet size: " << textcodec.nSymbols << std::endl;
     std::cout << "Model: nLayers: " << nLayers << " layerW: " << layerW << " layerH: " << layerH << " inFeedbackRadius: " << inFeedBackRadius 
 			  << " input: " << inputsRoot << "x" << inputsRoot << std::endl;
+	std::cout << "Training: epochs: " << numEpochs << std::endl;
+	std::cout << "Sampling: samples: " << numSamples << " size: " << sampleSize << " seed noise: " << sampleSeedNoise << " pred noise " << samplePredNoise << std::endl;    
+    std::cout << "--[ Start training ]--" << std::endl;
     
     train(ph, generator, test, numEpochs, textcodec);
     
+    std::cout << "--[ Start sampling ]--" << std::endl;
     for (int i = 0; i < numSamples; i++) {
-        sample(ph, generator, textcodec.getRandomSymbol(generator), test.length(), textcodec);
+        sample(ph, generator, textcodec.getRandomSymbol(generator), sampleSize, textcodec, sampleSeedNoise, samplePredNoise);
     }
     
 	return 0;
