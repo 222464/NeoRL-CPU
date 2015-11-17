@@ -16,29 +16,87 @@
 
 #include <algorithm>
 
-void train(neo::PredictiveHierarchy ph, std::mt19937 generator,
-           std::string& test, int epochs, int numInputs, int inputsRoot,
-           int minimum, int maximum) {
+class VectorCodec {
+private:
+	std::unordered_set<char> alphabet;
+	char tableStoI[256];
+	char tableItoS[256];
+public:
+	int N;
+	int nSymbols;
+	std::vector<float> vector;
+	char symbol;
+	int symIndex;
+	
+	VectorCodec(std::string corpus, int vecLength = 0) {
+		for (int i = 0; i < corpus.length(); i++) {
+			alphabet.emplace(corpus[i]);
+		}
+		nSymbols = alphabet.size();
+				
+		if (vecLength == 0) { //auto
+			N = nSymbols;
+		} else {
+			N = vecLength;
+		}
+		vector.resize(N, 0.0f);
+		
+		for (int i = 0; i < 256; i++) { tableStoI[i] = 0; tableItoS[i] = 0; }
+		
+		int index = 0;
+		for (auto itr = alphabet.begin(); itr != alphabet.end(); ++itr) {
+			tableStoI[*itr] = index;
+			tableItoS[index] = *itr;
+			index++;
+		}
+		
+		symbol = 0;
+		symIndex = 0;
+	}
+	
+	void encode() {
+		for (int i = 0; i < vector.size(); i++) {
+			vector[i] = 0.0f;
+		}
+		vector[tableStoI[symbol]] = 1.0f;
+	};
+	
+	void decode() {
+		int maxIndex = 0;
+		for (int i = 0; i < N; i++) {
+			if (vector[i] > vector[maxIndex])
+				maxIndex = i;
+		}
+		symbol = tableItoS[maxIndex];
+		symIndex = maxIndex;
+	};
+	
+	char getRandomSymbol(std::mt19937& generator) {
+		return tableItoS[generator() % nSymbols];
+	}
+};
+
+void train(neo::PredictiveHierarchy& ph, std::mt19937& generator,
+           std::string& test, int epochs, VectorCodec& textcodec) {
 	
     for (size_t k = 0; k < epochs; k++) {
         for (size_t i = 0; i < test.length(); i++) {
-            for (int j = 0; j < inputsRoot * inputsRoot; j++) {
-                ph.setInput(j, 0.0f);
-            }
+            textcodec.symbol = test[i];
+            textcodec.encode();
             
-            int index = test[i] - minimum;
-
-            ph.setInput(index, 1.0f);
+			for (int j = 0; j < textcodec.N; j++) {
+                ph.setInput(j, textcodec.vector[j]);
+            }
 
             ph.simStep(generator);
-
-            int predIndex = 0;
-            for (int i = 0; i < numInputs; i++) {
-                if (ph.getPrediction(i) > ph.getPrediction(predIndex))
-                    predIndex = i;
+			
+			for (int j = 0; j < textcodec.N; j++) {
+                textcodec.vector[j] = ph.getPrediction(j);
             }
 			
-            char predChar = predIndex + minimum;
+			textcodec.decode();
+			
+            char predChar = textcodec.symbol;
 
             std::cout << predChar;
         }
@@ -46,36 +104,38 @@ void train(neo::PredictiveHierarchy ph, std::mt19937 generator,
     }
 }
 
-void sample(neo::PredictiveHierarchy ph, std::mt19937 generator,
-           char seed, int nSamples, int numInputs, int inputsRoot,
-           int minimum, int maximum) {
+void sample(neo::PredictiveHierarchy& ph, std::mt19937& generator,
+           char seed, int nSamples, VectorCodec& textcodec) {
     
 	std::uniform_real_distribution<float> dist01(0.0f, 1.0f);
-
-    for (int j = 0; j < inputsRoot * inputsRoot; j++) {
-        ph.setInput(j, 0.0f);
+	
+	textcodec.symbol = seed;
+	textcodec.encode();
+	
+	for (int j = 0; j < textcodec.N; j++) {
+        ph.setInput(j, textcodec.vector[j] + dist01(generator)*0.5);
     }
-    ph.setInput(seed - minimum, 1.0f);//dist01(generator)*0.1+0.9);
-    ph.simStep(generator);
+    ph.simStep(generator, false);
     
-    std::cout << "seed: " << seed << " sample: ";
+    std::cout << "seed: " << seed << " i: " << textcodec.symIndex << " sample: ";
     
     for (size_t i = 1; i < nSamples; i++) {
-        
-        ph.simStep(generator);
 
-        int predIndex = 0;
-        for (int i = 0; i < numInputs; i++) {
-            if (ph.getPrediction(i) > ph.getPrediction(predIndex))
-                predIndex = i;
+		for (int j = 0; j < textcodec.N; j++) {
+			textcodec.vector[j] = ph.getPrediction(j);
+		}
+        
+		textcodec.decode();
+			
+		char predChar = textcodec.symbol;
+        
+		std::cout << predChar << " ";
+		
+        for (int j = 0; j < textcodec.N; j++) {
+            ph.setInput(j, ph.getPrediction(j) + dist01(generator)*0.05);
         }
         
-        char predChar = predIndex + minimum;
-        std::cout << predIndex << " " << predChar << " ";
-		
-        for (int j = 0; j < inputsRoot * inputsRoot; j++) {
-            ph.setInput(j, ph.getPrediction(j));
-        }
+        ph.simStep(generator, false);
     }
     
     std::cout << std::endl;
@@ -114,22 +174,14 @@ int main(int argc, const char** argv) {
 	std::string test(size, ' ');
 	fromFile.seekg(0);
 	fromFile.read(&test[0], size);
-
-	int minimum = 255;
-	int maximum = 0;
-
+	
 	// ---------------------------------- Find Character Set ----------------------------------
-
-	for (int i = 0; i < test.length(); i++) {
-		minimum = std::min(static_cast<int>(test[i]), minimum);
-		maximum = std::max(static_cast<int>(test[i]), maximum);
-	}
-
-	// ---------------------------------- Create Hierarchy ----------------------------------
-
-	// Organize inputs into a square input region
-	int numInputs = maximum - minimum + 1;
+	
+	VectorCodec textcodec(test);
+	int numInputs = textcodec.N;
 	int inputsRoot = std::ceil(std::sqrt(static_cast<float>(numInputs)));
+	
+	// ---------------------------------- Create Hierarchy ----------------------------------
 	
 	// Fill out layer descriptions
 	int nLayers = std::atoi(parser.retrieve("nlayers", "3").c_str());
@@ -143,23 +195,24 @@ int main(int argc, const char** argv) {
 		layerDescs[i]._width = layerW;
 		layerDescs[i]._height = layerH;
 	}
-    
+	
 	neo::PredictiveHierarchy ph;
-
+	
 	ph.createRandom(inputsRoot, inputsRoot, inFeedBackRadius, layerDescs, -0.01f, 0.01f, 0.01f, 0.05f, 0.1f, generator);
-
+	
 	// ---------------------------------- Iterate Over Corpus ----------------------------------
     int numEpochs = std::atoi(parser.retrieve("epochs", "10").c_str());
     int numSamples = std::atoi(parser.retrieve("samples", "10").c_str());
     
     std::cout << "NeoRL text prediction experiment" << std::endl;
-    std::cout << "Corpus: " << corpusPath << " size: " << test.length() << " minChar: " << minimum << " maxChar: " << maximum << std::endl;
-    std::cout << "Model: nLayers: " << nLayers << " layerW: " << layerW << " layerH: " << layerH << " inFeedbackRadius: " << inFeedBackRadius << std::endl;
+    std::cout << "Corpus: " << corpusPath << " size: " << test.length() << " alphabet size: " << textcodec.nSymbols << std::endl;
+    std::cout << "Model: nLayers: " << nLayers << " layerW: " << layerW << " layerH: " << layerH << " inFeedbackRadius: " << inFeedBackRadius 
+			  << " input: " << inputsRoot << "x" << inputsRoot << std::endl;
     
-    train(ph, generator, test, numEpochs, numInputs, inputsRoot, minimum, maximum);
+    train(ph, generator, test, numEpochs, textcodec);
     
     for (int i = 0; i < numSamples; i++) {
-        sample(ph, generator, 'I', test.length(), numInputs, inputsRoot, minimum, maximum);
+        sample(ph, generator, textcodec.getRandomSymbol(generator), test.length(), textcodec);
     }
     
 	return 0;
