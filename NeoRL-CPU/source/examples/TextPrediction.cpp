@@ -53,25 +53,25 @@ int main() {
 	std::vector<neo::PredictiveHierarchy::LayerDesc> layerDescs(3);
 
 	// Fill out layer descriptions
-	layerDescs[0]._width = 8;
-	layerDescs[0]._height = 8;
+	layerDescs[0]._width = 32;
+	layerDescs[0]._height = 32;
 	
-	layerDescs[1]._width = 8;
-	layerDescs[1]._height = 8;
+	layerDescs[1]._width = 32;
+	layerDescs[1]._height = 32;
 
-	layerDescs[2]._width = 8;
-	layerDescs[2]._height = 8;
+	layerDescs[2]._width = 32;
+	layerDescs[2]._height = 32;
 
 	neo::PredictiveHierarchy ph;
 
-	ph.createRandom(inputsRoot, inputsRoot, 8, layerDescs, -0.01f, 0.01f, 0.01f, 0.05f, 0.1f, generator);
+	ph.createRandom(inputsRoot, inputsRoot, 16, layerDescs, -0.01f, 0.01f, 0.01f, 0.05f, 0.1f, generator);
 
 	// ---------------------------------- Iterate Over Corpus ----------------------------------
 
 	// Current character index
 	int current = 0;
 
-	for (size_t it = 0; it < 10000; it++) {
+	for (size_t it = 0; it < 50000; it++) {
 		for (int i = 0; i < inputsRoot * inputsRoot; i++)
 			ph.setInput(i, 0.0f);
 
@@ -109,7 +109,7 @@ int main() {
 
 	char predChar = test[current];
 
-	for (size_t it = 0; it < 1000; it++) {
+	for (size_t it = 0; it < 10000; it++) {
 		for (int i = 0; i < inputsRoot * inputsRoot; i++)
 			ph.setInput(i, 0.0f);
 
@@ -117,7 +117,7 @@ int main() {
 
 		ph.setInput(index, 1.0f);
 
-		ph.simStepGenerate(generator, 0.01f);
+		ph.simStepGenerate(generator, 0.05f);
 
 		int predIndex = 0;
 
