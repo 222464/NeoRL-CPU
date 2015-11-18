@@ -113,9 +113,7 @@ void SparseCoder::createRandom(int visibleWidth, int visibleHeight, int hiddenWi
 	}
 }
 
-void SparseCoder::activate(int iter, float leak, float noise, std::mt19937 &generator) {
-	std::normal_distribution<float> noiseDist(0.0f, noise);
-
+void SparseCoder::activate(int iter, float leak, std::mt19937 &generator) {
 	std::vector<float> visibleErrors(_visible.size());
 	std::vector<float> hiddenErrors(_hidden.size());
 
@@ -136,6 +134,70 @@ void SparseCoder::activate(int iter, float leak, float noise, std::mt19937 &gene
 
 		for (int hi = 0; hi < _hidden.size(); hi++) {
 			float excitation = 0.0f;
+
+			for (int ci = 0; ci < _hidden[hi]._feedForwardConnections.size(); ci++)
+				excitation += visibleErrors[_hidden[hi]._feedForwardConnections[ci]._index] * _hidden[hi]._feedForwardConnections[ci]._weight;
+
+			for (int ci = 0; ci < _hidden[hi]._recurrentConnections.size(); ci++)
+				excitation += hiddenErrors[_hidden[hi]._recurrentConnections[ci]._index] * _hidden[hi]._recurrentConnections[ci]._weight;
+
+			float inhibition = 0.0f;
+
+			for (int ci = 0; ci < _hidden[hi]._lateralConnections.size(); ci++)
+				inhibition += _hidden[_hidden[hi]._lateralConnections[ci]._index]._spikePrev * _hidden[hi]._lateralConnections[ci]._weight;
+
+			_hidden[hi]._activation = (1.0f - leak) * _hidden[hi]._activation + excitation - inhibition;
+
+			if (_hidden[hi]._activation > _hidden[hi]._threshold) {
+				_hidden[hi]._activation = 0.0f;
+				_hidden[hi]._spike = 1.0f;
+			}
+			else
+				_hidden[hi]._spike = 0.0f;
+
+			_hidden[hi]._state += _hidden[hi]._spike;
+		}
+
+		for (int hi = 0; hi < _hidden.size(); hi++)
+			_hidden[hi]._spikePrev = _hidden[hi]._spike;
+
+		settleCounter += 1.0f;
+
+		float multiplier = 1.0f / settleCounter;
+
+		reconstructFromStates(multiplier);
+	}
+
+	// Divide
+	float multiplier = 1.0f / settleCounter;
+
+	for (int hi = 0; hi < _hidden.size(); hi++)
+		_hidden[hi]._state *= multiplier;
+}
+
+void SparseCoder::activateNoise(int iter, float leak, float noise, std::mt19937 &generator) {
+	std::normal_distribution<float> noiseDist(0.0f, 1.0f);
+
+	std::vector<float> visibleErrors(_visible.size());
+	std::vector<float> hiddenErrors(_hidden.size());
+
+	for (int hi = 0; hi < _hidden.size(); hi++) {
+		_hidden[hi]._activation = 0.0f;
+
+		_hidden[hi]._state = 0.0f;
+	}
+
+	float settleCounter = 0.0f;
+
+	for (int it = 0; it < iter; it++) {
+		for (int vi = 0; vi < _visible.size(); vi++)
+			visibleErrors[vi] = _visible[vi]._input - _visible[vi]._reconstruction;
+
+		for (int hi = 0; hi < _hidden.size(); hi++)
+			hiddenErrors[hi] = _hidden[hi]._statePrev - _hidden[hi]._reconstruction;
+
+		for (int hi = 0; hi < _hidden.size(); hi++) {
+			float excitation = noiseDist(generator) * noise;
 
 			for (int ci = 0; ci < _hidden[hi]._feedForwardConnections.size(); ci++)
 				excitation += visibleErrors[_hidden[hi]._feedForwardConnections[ci]._index] * _hidden[hi]._feedForwardConnections[ci]._weight;

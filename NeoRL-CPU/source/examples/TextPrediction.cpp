@@ -10,6 +10,7 @@
 #include <iostream>
 #include <random>
 #include <fstream>
+#include <cmath>
 
 #include <unordered_map>
 #include <unordered_set>
