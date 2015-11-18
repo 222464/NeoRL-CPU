@@ -139,10 +139,6 @@ void PredictiveHierarchy::simStep(std::mt19937 &generator, bool learn) {
 	for (int l = 0; l < _layers.size(); l++) {
 		_layers[l]._sdr.activate(_layerDescs[l]._sdrIter, _layerDescs[l]._sdrLeak, generator);
 
-		// Clear errors for later
-		for (int pi = 0; pi < _layers[l]._predictionNodes.size(); pi++)
-			_layers[l]._predictionNodes[pi]._error = 0.0f;
-
 		// Set inputs for next layer if there is one
 		if (l < _layers.size() - 1) {
 			for (int i = 0; i < _layers[l]._sdr.getNumHidden(); i++) {
@@ -156,19 +152,10 @@ void PredictiveHierarchy::simStep(std::mt19937 &generator, bool learn) {
 		for (int pi = 0; pi < _layers[l]._predictionNodes.size(); pi++) {
 			PredictionNode &p = _layers[l]._predictionNodes[pi];
 
-			float predictionError = _layers[l]._sdr.getHiddenState(pi) - p._statePrev;
-
-			// Propagate the error
-			if (l < _layers.size() - 1) {
-				for (int ci = 0; ci < p._feedBackConnections.size(); ci++)
-					_layers[l + 1]._predictionNodes[p._feedBackConnections[ci]._index]._error += p._feedBackConnections[ci]._weight * predictionError;
-			}
-
-			for (int ci = 0; ci < p._predictiveConnections.size(); ci++)
-				_layers[l]._predictionNodes[p._predictiveConnections[ci]._index]._error += p._predictiveConnections[ci]._weight * predictionError;
-
 			// Learn
 			if (learn) {	
+				float predictionError = _layers[l]._sdr.getHiddenState(pi) - p._statePrev;
+
 				if (l < _layers.size() - 1) {
 					for (int ci = 0; ci < p._feedBackConnections.size(); ci++)
 						p._feedBackConnections[ci]._weight += _layerDescs[l]._learnFeedBack * predictionError * _layers[l + 1]._predictionNodes[p._feedBackConnections[ci]._index]._statePrev;
@@ -201,13 +188,10 @@ void PredictiveHierarchy::simStep(std::mt19937 &generator, bool learn) {
 	for (int pi = 0; pi < _inputPredictionNodes.size(); pi++) {
 		InputPredictionNode &p = _inputPredictionNodes[pi];
 
-		float predictionError = _layers.front()._sdr.getVisibleState(pi) - p._statePrev;
-
-		for (int ci = 0; ci < p._feedBackConnections.size(); ci++)
-			_layers.front()._predictionNodes[p._feedBackConnections[ci]._index]._error += p._feedBackConnections[ci]._weight * predictionError;
-
 		// Learn
 		if (learn) {		
+			float predictionError = _layers.front()._sdr.getVisibleState(pi) - p._statePrev;
+
 			for (int ci = 0; ci < p._feedBackConnections.size(); ci++)
 				p._feedBackConnections[ci]._weight += _learnInputFeedBack * predictionError * _layers.front()._predictionNodes[p._feedBackConnections[ci]._index]._statePrev;
 		}
@@ -226,18 +210,21 @@ void PredictiveHierarchy::simStep(std::mt19937 &generator, bool learn) {
 	for (int l = 0; l < _layers.size(); l++) {
 		std::vector<float> rewards(_layers[l]._predictionNodes.size());
 
-		for (int pi = 0; pi < _layers[l]._predictionNodes.size(); pi++) {
-			PredictionNode &p = _layers[l]._predictionNodes[pi];
+		if (learn) {
+			for (int pi = 0; pi < _layers[l]._predictionNodes.size(); pi++) {
+				PredictionNode &p = _layers[l]._predictionNodes[pi];
 
-			float error2 = p._error * p._error;
+				float predictionError = _layers[l]._sdr.getHiddenState(pi) - p._statePrev;
 
-			rewards[pi] = sigmoid(_layerDescs[l]._sdrSensitivity * (error2 - p._baseline));
+				float error2 = predictionError * predictionError;
 
-			p._baseline = (1.0f - _layerDescs[l]._sdrBaselineDecay) * p._baseline + _layerDescs[l]._sdrBaselineDecay * error2;
-		}
+				rewards[pi] = sigmoid(_layerDescs[l]._sdrSensitivity * (error2 - p._baseline));
 
-		if (learn)
+				p._baseline = (1.0f - _layerDescs[l]._sdrBaselineDecay) * p._baseline + _layerDescs[l]._sdrBaselineDecay * error2;
+			}
+
 			_layers[l]._sdr.learn(rewards, _layerDescs[l]._sdrLambda, _layerDescs[l]._learnFeedForward, _layerDescs[l]._learnRecurrent, _layerDescs[l]._learnLateral, _layerDescs[l]._sdrLearnThreshold, _layerDescs[l]._sdrSparsity, _layerDescs[l]._sdrWeightDecay, _layerDescs[l]._sdrMaxWeightDelta); //attentions[l], 
+		}
 
 		_layers[l]._sdr.stepEnd();
 

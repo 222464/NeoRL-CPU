@@ -34,11 +34,11 @@ namespace neo {
 			LayerDesc()
 				: _width(16), _height(16),
 				_receptiveRadius(4), _recurrentRadius(4), _lateralRadius(4), _predictiveRadius(4), _feedBackRadius(4),
-				_learnFeedForward(0.002f), _learnRecurrent(0.002f), _learnLateral(0.01f),
-				_learnFeedBack(0.1f), _learnPrediction(0.02f),
+				_learnFeedForward(0.01f), _learnRecurrent(0.01f), _learnLateral(0.05f),
+				_learnFeedBack(0.1f), _learnPrediction(0.03f),
 				_sdrIter(30),
 				_sdrLeak(0.1f), _sdrLambda(0.95f), _sdrHiddenDecay(0.01f), _sdrWeightDecay(0.0f), _sdrMaxWeightDelta(0.5f),
-				_sdrSparsity(0.04f), _sdrLearnThreshold(0.005f),
+				_sdrSparsity(0.08f), _sdrLearnThreshold(0.01f),
 				_sdrBaselineDecay(0.01f),
 				_sdrSensitivity(6.0f)
 			{}
@@ -58,11 +58,8 @@ namespace neo {
 
 			float _baseline;
 
-			float _error;
-
 			PredictionNode()
-				: _state(0.0f), _statePrev(0.0f), _activation(0.0f), _activationPrev(0.0f), _baseline(0.0f),
-				_error(0.0f)
+				: _state(0.0f), _statePrev(0.0f), _activation(0.0f), _activationPrev(0.0f), _baseline(0.0f)
 			{}
 		};
 
