@@ -38,7 +38,7 @@ namespace neo {
 				_learnFeedBack(0.1f), _learnPrediction(0.03f),
 				_sdrIter(30),
 				_sdrLeak(0.1f), _sdrLambda(0.95f), _sdrHiddenDecay(0.01f), _sdrWeightDecay(0.0f), _sdrMaxWeightDelta(0.5f),
-				_sdrSparsity(0.02f), _sdrLearnThreshold(0.01f),
+				_sdrSparsity(0.08f), _sdrLearnThreshold(0.01f),
 				_sdrBaselineDecay(0.01f),
 				_sdrSensitivity(6.0f)
 			{}
